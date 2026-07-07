@@ -5,21 +5,37 @@ import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 
-function argValue(name, fallback) {
+type OutputFormat = "path" | "url" | "env" | "json";
+
+interface UploadResponse {
+  url: string;
+}
+
+interface AgentResult {
+  path: string;
+  url?: string;
+  width: string;
+  height: string;
+  mime: "image/jpeg";
+  source: string;
+}
+
+function argValue(name: string, fallback: string): string {
   const prefix = `${name}=`;
   const direct = args.find((arg) => arg.startsWith(prefix));
   if (direct) return direct.slice(prefix.length);
   const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : fallback;
+  return index >= 0 ? (args[index + 1] ?? fallback) : fallback;
 }
 
-function hasArg(name) {
+function hasArg(name: string): boolean {
   return args.includes(name);
 }
 
-function positionalFile() {
+function positionalFile(): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (!arg) continue;
     if (arg.startsWith("--")) {
       if (!arg.includes("=")) index += 1;
       continue;
@@ -29,7 +45,7 @@ function positionalFile() {
   return undefined;
 }
 
-function run(command, commandArgs) {
+function run(command: string, commandArgs: string[]): string {
   const result = spawnSync(command, commandArgs, { encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(result.stderr.trim() || `${command} failed`);
@@ -37,7 +53,7 @@ function run(command, commandArgs) {
   return result.stdout;
 }
 
-function latestImage(dir) {
+function latestImage(dir: string): string {
   const script = `find "$1" -maxdepth 1 -type f \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' -o -iname '*.heif' \\) -print0 | xargs -0 ls -t 2>/dev/null | head -n 1`;
   const result = spawnSync("sh", ["-c", script, "sh", dir], { encoding: "utf8" });
   const file = result.stdout.trim();
@@ -45,14 +61,14 @@ function latestImage(dir) {
   return file;
 }
 
-function imageInfo(file) {
+function imageInfo(file: string): { width: string; height: string } {
   const output = run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", file]);
   const width = output.match(/pixelWidth:\s*(\d+)/)?.[1] ?? "";
   const height = output.match(/pixelHeight:\s*(\d+)/)?.[1] ?? "";
   return { width, height };
 }
 
-function contentType(file) {
+function contentType(file: string): string {
   switch (extname(file).toLowerCase()) {
     case ".png":
       return "image/png";
@@ -68,7 +84,7 @@ function contentType(file) {
   }
 }
 
-async function upload(file) {
+async function upload(file: string): Promise<string> {
   const token = process.env.STARSHOT_AUTH_TOKEN || process.env.AUTH_TOKEN;
   if (!process.env.STARSHOT_UPLOAD_URL) throw new Error("STARSHOT_UPLOAD_URL is required");
   if (!token) throw new Error("AUTH_TOKEN or STARSHOT_AUTH_TOKEN is required");
@@ -91,11 +107,11 @@ async function upload(file) {
     throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
   }
 
-  const body = await response.json();
+  const body = (await response.json()) as UploadResponse;
   return body.url;
 }
 
-function printResult(format, result) {
+function printResult(format: string, result: AgentResult): void {
   switch (format) {
     case "path":
       console.log(result.path);
@@ -118,7 +134,7 @@ function printResult(format, result) {
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   const mode = argValue("--mode", "latest");
   const screenshotDir = process.env.SCREENSHOT_DIR || `${process.env.HOME}/Desktop`;
   const source = mode === "file" ? positionalFile() : latestImage(screenshotDir);
@@ -140,19 +156,20 @@ async function main() {
   spawnSync("xattr", ["-c", preview], { stdio: "ignore" });
 
   const info = imageInfo(preview);
-  const result = {
+  const url = hasArg("--upload") || format === "url" ? await upload(preview) : undefined;
+  const result: AgentResult = {
     path: preview,
-    url: hasArg("--upload") || format === "url" ? await upload(preview) : undefined,
     width: info.width,
     height: info.height,
     mime: "image/jpeg",
     source: file,
   };
+  if (url) result.url = url;
 
   printResult(format, result);
 }
 
-main().catch((error) => {
-  console.error(error.message);
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

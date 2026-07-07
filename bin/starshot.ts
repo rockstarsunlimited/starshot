@@ -7,22 +7,22 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const command = process.argv[2] ?? "help";
 const args = process.argv.slice(3);
 
-const scripts = {
-  setup: "scripts/setup-starshot.js",
+const scripts: Record<string, string> = {
+  setup: "scripts/setup-starshot.ts",
   install: "scripts/install-launch-agent.sh",
   uninstall: "scripts/uninstall-launch-agent.sh",
   upload: "scripts/upload-latest-screenshot.sh",
-  agent: "scripts/agent-screenshot.js",
-  "agent-file": "scripts/agent-screenshot.js",
-  "upload-file": "scripts/agent-screenshot.js",
-  last: "scripts/list-urls.js",
-  list: "scripts/list-urls.js",
-  copy: "scripts/list-urls.js",
-  sync: "scripts/sync-queue.js",
-  status: "scripts/sync-queue.js",
+  agent: "scripts/agent-screenshot.ts",
+  "agent-file": "scripts/agent-screenshot.ts",
+  "upload-file": "scripts/agent-screenshot.ts",
+  last: "scripts/list-urls.ts",
+  list: "scripts/list-urls.ts",
+  copy: "scripts/list-urls.ts",
+  sync: "scripts/sync-queue.ts",
+  status: "scripts/sync-queue.ts",
 };
 
-const varlockCommands = new Set([
+const varlockCommands = new Set<string>([
   "agent",
   "agent-file",
   "upload-file",
@@ -33,7 +33,7 @@ const varlockCommands = new Set([
   "status",
 ]);
 
-function help() {
+function help(): void {
   console.log(`Starshot
 
 Usage:
@@ -82,7 +82,7 @@ if (varlockCommands.has(command) && process.env.STARSHOT_VARLOCK_WRAPPED !== "1"
   } catch {
     // Fall back to schema-only resolution.
   }
-  varlockArgs.push("--", resolve(root, "bin/starshot"), command, ...args);
+  varlockArgs.push("--", resolve(root, "bin/starshot.ts"), command, ...args);
 
   const result = spawnSync("bunx", varlockArgs, {
     cwd: root,

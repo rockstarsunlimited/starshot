@@ -53,8 +53,8 @@ jobs:
           cargo install -q worker-build
           worker-build --release
 
-  bun-tools:
-    name: bun-tools
+  local-tooling:
+    name: local-tooling
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
@@ -69,12 +69,13 @@ jobs:
 
       - name: JavaScript and shell checks
         run: |
-          bun build bin/starshot scripts/setup-starshot.js scripts/agent-screenshot.js scripts/list-urls.js scripts/sync-queue.js --target bun --outdir /tmp/starshot-check
+          bun run typecheck
+          bun build bin/starshot.ts scripts/setup-starshot.ts scripts/agent-screenshot.ts scripts/list-urls.ts scripts/sync-queue.ts --target bun --outdir /tmp/starshot-check
           rm -rf /tmp/starshot-check
-          zsh -n scripts/starshot-lib.sh
-          zsh -n scripts/upload-latest-screenshot.sh
-          zsh -n scripts/install-launch-agent.sh
-          zsh -n scripts/uninstall-launch-agent.sh
+          sh -n scripts/starshot-lib.sh
+          sh -n scripts/upload-latest-screenshot.sh
+          sh -n scripts/install-launch-agent.sh
+          sh -n scripts/uninstall-launch-agent.sh
 
       - name: Varlock scan
         run: bun run scan

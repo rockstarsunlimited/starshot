@@ -8,7 +8,7 @@
     "url": "git+ssh://git@github.com/rockstarsunlimited/starshot.git"
   },
   "bin": {
-    "starshot": "bin/starshot"
+    "starshot": "bin/starshot.ts"
   },
   "files": [
     "bin/",
@@ -18,6 +18,7 @@
     ".env.schema",
     "Cargo.toml",
     "Cargo.lock",
+    "tsconfig.json",
     "wrangler.toml",
     "README.md",
     "LICENSE"
@@ -28,16 +29,21 @@
     "deploy": "varlock run -- bunx wrangler deploy",
     "agent:install": "scripts/install-launch-agent.sh",
     "scan": "varlock scan",
-    "setup": "scripts/setup-starshot.js",
+    "setup": "scripts/setup-starshot.ts",
     "agent:uninstall": "scripts/uninstall-launch-agent.sh",
-    "starshot": "bin/starshot",
-    "agent": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot agent \"$@\"; else varlock run -p .env.schema -- bin/starshot agent \"$@\"; fi' --",
-    "list": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot list \"$@\"; else varlock run -p .env.schema -- bin/starshot list \"$@\"; fi' --",
-    "sync": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot sync \"$@\"; else varlock run -p .env.schema -- bin/starshot sync \"$@\"; fi' --",
+    "starshot": "bin/starshot.ts",
+    "agent": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot.ts agent \"$@\"; else varlock run -p .env.schema -- bin/starshot.ts agent \"$@\"; fi' --",
+    "list": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot.ts list \"$@\"; else varlock run -p .env.schema -- bin/starshot.ts list \"$@\"; fi' --",
+    "sync": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot.ts sync \"$@\"; else varlock run -p .env.schema -- bin/starshot.ts sync \"$@\"; fi' --",
+    "typecheck": "tsc --noEmit",
     "upload": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- scripts/upload-latest-screenshot.sh; else varlock run -p .env.schema -- scripts/upload-latest-screenshot.sh; fi'"
   },
   "dependencies": {
+    "@types/bun": "^1.3.2",
     "@varlock/1password-plugin": "^2.0.0",
     "varlock": "^1.10.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }

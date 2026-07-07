@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/sh
 
 starshot_state_dir() {
   printf '%s\n' "${STARSHOT_STATE_DIR:-$HOME/Library/Application Support/Starshot}"
@@ -17,38 +17,32 @@ starshot_log_dir() {
 }
 
 starshot_notify() {
-  local message="$1"
-  local title="${2:-Starshot}"
-  if [[ "${STARSHOT_NOTIFY:-1}" != "1" ]]; then
+  message="$1"
+  title="${2:-Starshot}"
+  if [ "${STARSHOT_NOTIFY:-1}" != "1" ]; then
     return 0
   fi
-  /usr/bin/osascript -e "display notification $(printf '%q' "$message") with title $(printf '%q' "$title")" >/dev/null 2>&1 || true
+  /usr/bin/osascript -e "display notification \"$message\" with title \"$title\"" >/dev/null 2>&1 || true
 }
 
 starshot_json_escape() {
-  local value="$1"
-  value="${value//\\/\\\\}"
-  value="${value//\"/\\\"}"
-  printf '%s' "$value"
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 starshot_enqueue_upload() {
-  local file="$1"
-  local content_type="$2"
-  local scope="$3"
-  local reason="$4"
-  local queue_dir
+  file="$1"
+  content_type="$2"
+  scope="$3"
+  reason="$4"
   queue_dir="$(starshot_queue_dir)"
-  local blob_dir
   blob_dir="$(starshot_blob_dir)"
   mkdir -p "$queue_dir" "$blob_dir"
 
-  local id
   id="$(date -u '+%Y%m%dT%H%M%S')_$RANDOM"
-  local ext="${file:e}"
-  local blob="$blob_dir/$id.$ext"
-  local item="$queue_dir/$id.json"
-  local tmp_item="$queue_dir/$id.json.tmp"
+  ext="${file##*.}"
+  blob="$blob_dir/$id.$ext"
+  item="$queue_dir/$id.json"
+  tmp_item="$queue_dir/$id.json.tmp"
 
   cp "$file" "$blob"
   xattr -c "$blob" 2>/dev/null || true

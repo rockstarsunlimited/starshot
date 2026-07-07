@@ -12,7 +12,32 @@ const profilePath = resolve(root, ".varlock/profiles/starshot.env");
 const wranglerPath = resolve(root, "wrangler.toml");
 const dryRun = process.env.STARSHOT_SETUP_DRY_RUN === "1";
 
-function argValue(name) {
+interface RunOptions {
+  input?: string;
+}
+
+interface WranglerPatch {
+  bucketName: string;
+  publicBaseUrl: string;
+}
+
+interface ProfileConfig {
+  publicBaseUrl: string;
+  uploadUrl: string;
+  screenshotDir: string;
+  uploadFormat: string;
+  jpegQuality: string;
+  cleanupDays: string;
+  agentMaxWidth: string;
+  agentQuality: string;
+}
+
+interface MacScreenshotDefaults {
+  screenshotDir: string;
+  includeShadows: boolean;
+}
+
+function argValue(name: string): string | undefined {
   const prefix = `${name}=`;
   const direct = process.argv.find((arg) => arg.startsWith(prefix));
   if (direct) return direct.slice(prefix.length);
@@ -20,11 +45,11 @@ function argValue(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-function hasArg(name) {
+function hasArg(name: string): boolean {
   return process.argv.includes(name);
 }
 
-async function prompt(question, fallback) {
+async function prompt(question: string, fallback: string): Promise<string> {
   const rl = createInterface({ input, output });
   try {
     const suffix = fallback ? ` (${fallback})` : "";
@@ -35,18 +60,18 @@ async function prompt(question, fallback) {
   }
 }
 
-async function promptBool(question, fallback) {
+async function promptBool(question: string, fallback: boolean): Promise<boolean> {
   const label = fallback ? "Y/n" : "y/N";
   const answer = (await prompt(`${question} [${label}]`, "")).toLowerCase();
   if (!answer) return fallback;
   return ["y", "yes", "true", "1"].includes(answer);
 }
 
-function envQuote(value) {
+function envQuote(value: string): string {
   return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-function run(command, args, options = {}) {
+function run(command: string, args: string[], options: RunOptions = {}): { status: number | null } {
   if (dryRun) {
     console.log(`[dry-run] ${command} ${args.join(" ")}`);
     return { status: 0 };
@@ -60,7 +85,7 @@ function run(command, args, options = {}) {
   });
 }
 
-function patchWrangler({ bucketName, publicBaseUrl }) {
+function patchWrangler({ bucketName, publicBaseUrl }: WranglerPatch): void {
   const original = readFileSync(wranglerPath, "utf8");
   const next = original
     .replace(/^PUBLIC_BASE_URL = ".*"$/m, `PUBLIC_BASE_URL = "${publicBaseUrl}"`)
@@ -83,7 +108,7 @@ function writeProfile({
   cleanupDays,
   agentMaxWidth,
   agentQuality,
-}) {
+}: ProfileConfig): void {
   mkdirSync(dirname(profilePath), { recursive: true });
   const lines = [
     `PUBLIC_BASE_URL=${envQuote(publicBaseUrl)}`,
@@ -104,7 +129,7 @@ function writeProfile({
   writeFileSync(profilePath, `${lines.join("\n")}\n`);
 }
 
-function storeTokenInKeychain(token) {
+function storeTokenInKeychain(token: string): void {
   const result = run(
     "bunx",
     [
@@ -129,7 +154,7 @@ function storeTokenInKeychain(token) {
   }
 }
 
-function putWranglerSecret(token) {
+function putWranglerSecret(token: string): void {
   const result = run("bunx", ["wrangler", "secret", "put", "AUTH_TOKEN"], {
     input: `${token}\n`,
   });
@@ -140,7 +165,7 @@ function putWranglerSecret(token) {
   }
 }
 
-function applyMacScreenshotDefaults({ screenshotDir, includeShadows }) {
+function applyMacScreenshotDefaults({ screenshotDir, includeShadows }: MacScreenshotDefaults): void {
   if (dryRun) {
     console.log(`[dry-run] mkdir -p ${screenshotDir}`);
   } else {
@@ -148,7 +173,7 @@ function applyMacScreenshotDefaults({ screenshotDir, includeShadows }) {
   }
 
   const disableShadow = includeShadows ? "false" : "true";
-  const commands = [
+  const commands: Array<[string, string[]]> = [
     ["defaults", ["write", "com.apple.screencapture", "location", screenshotDir]],
     ["defaults", ["write", "com.apple.screencapture", "type", "png"]],
     ["defaults", ["write", "com.apple.screencapture", "disable-shadow", "-bool", disableShadow]],
@@ -160,7 +185,7 @@ function applyMacScreenshotDefaults({ screenshotDir, includeShadows }) {
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   if (!existsSync(wranglerPath)) {
     console.error("wrangler.toml not found. Run setup from the Starshot project root.");
     process.exit(1);
@@ -223,7 +248,7 @@ async function main() {
   }
 
   if (hasArg("--install")) {
-    const installResult = run("zsh", [resolve(root, "scripts/install-launch-agent.sh")]);
+    const installResult = run("sh", [resolve(root, "scripts/install-launch-agent.sh")]);
     if (installResult.status !== 0) {
       process.exit(installResult.status ?? 1);
     }

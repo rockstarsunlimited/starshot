@@ -1,5 +1,5 @@
-#!/bin/zsh
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 LABEL="co.rockstarsunlimited.starshot"
 PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"

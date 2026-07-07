@@ -1,5 +1,5 @@
-#!/bin/zsh
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 LABEL="co.rockstarsunlimited.starshot"
 PLIST_DIR="$HOME/Library/LaunchAgents"
@@ -9,7 +9,7 @@ BUN_PATH="${BUN_PATH:-$(command -v bun)}"
 SCREENSHOT_DIR="${SCREENSHOT_DIR:-$HOME/Desktop}"
 UID_VALUE="$(id -u)"
 
-if [[ -z "$BUN_PATH" ]]; then
+if [ -z "$BUN_PATH" ]; then
   echo "bun was not found in PATH. Install Bun or set BUN_PATH=/absolute/path/to/bun." >&2
   exit 1
 fi
@@ -17,13 +17,7 @@ fi
 mkdir -p "$PLIST_DIR"
 
 xml_escape() {
-  local value="$1"
-  value="${value//&/&amp;}"
-  value="${value//</&lt;}"
-  value="${value//>/&gt;}"
-  value="${value//\"/&quot;}"
-  value="${value//\'/&apos;}"
-  printf '%s' "$value"
+  printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g'
 }
 
 COMMAND='cd "'$REPO_DIR'" && "'$BUN_PATH'" run upload'
@@ -57,7 +51,7 @@ PLIST
 
 plutil -lint "$PLIST_PATH" >/dev/null
 
-if [[ "${STARSHOT_INSTALL_DRY_RUN:-}" == "1" ]]; then
+if [ "${STARSHOT_INSTALL_DRY_RUN:-}" = "1" ]; then
   echo "Dry run wrote $PLIST_PATH"
   exit 0
 fi

@@ -105,5 +105,6 @@ cargo test
 cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings
 cargo check --target wasm32-unknown-unknown
 worker-build --release
+bun run typecheck
 bun run scan
 ```

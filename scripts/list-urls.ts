@@ -4,37 +4,49 @@ import { spawnSync } from "node:child_process";
 const args = process.argv.slice(2);
 const command = process.env.STARSHOT_LIST_COMMAND || "list";
 
-function argValue(name, fallback) {
+interface ListItem {
+  key: string;
+  url: string;
+  timestamp: string;
+}
+
+interface ListResponse {
+  items?: ListItem[];
+}
+
+function argValue(name: string, fallback: string): string;
+function argValue(name: string, fallback: undefined): string | undefined;
+function argValue(name: string, fallback: string | undefined): string | undefined {
   const prefix = `${name}=`;
   const direct = args.find((arg) => arg.startsWith(prefix));
   if (direct) return direct.slice(prefix.length);
   const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : fallback;
+  return index >= 0 ? (args[index + 1] ?? fallback) : fallback;
 }
 
-function hasArg(name) {
+function hasArg(name: string): boolean {
   return args.includes(name);
 }
 
-function sinceValue(value) {
+function sinceValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const match = value.match(/^(\d+)([hd])$/);
   if (!match) return value.includes("T") ? value.replace("T", " ") : value;
 
-  const amount = Number(match[1]);
-  const unit = match[2];
+  const amount = Number(match[1] ?? "0");
+  const unit = match[2] ?? "h";
   const date = new Date(Date.now() - amount * (unit === "h" ? 3_600_000 : 86_400_000));
-  const pad = (number, width = 2) => String(number).padStart(width, "0");
+  const pad = (number: number, width = 2): string => String(number).padStart(width, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 }
 
-function formatItems(items, format) {
+function formatItems(items: ListItem[], format: string): string {
   if (format === "url") return items.map((item) => item.url).join("\n");
   if (format === "json") return JSON.stringify({ items });
   return items.map((item) => `${item.timestamp}\t${item.url}`).join("\n");
 }
 
-async function main() {
+async function main(): Promise<void> {
   const token = process.env.AUTH_TOKEN || process.env.STARSHOT_AUTH_TOKEN;
   const uploadUrl = process.env.STARSHOT_UPLOAD_URL;
   if (!token) throw new Error("AUTH_TOKEN or STARSHOT_AUTH_TOKEN is required");
@@ -43,7 +55,8 @@ async function main() {
   const apiUrl = new URL("/api/list", uploadUrl);
   apiUrl.searchParams.set("scope", argValue("--scope", "humans"));
   apiUrl.searchParams.set("limit", command === "last" ? "1" : argValue("--limit", "100"));
-  const since = sinceValue(argValue("--since", command === "last" ? undefined : "1d"));
+  const defaultSince = command === "last" ? undefined : "1d";
+  const since = sinceValue(defaultSince === undefined ? argValue("--since", undefined) : argValue("--since", defaultSince));
   if (since) apiUrl.searchParams.set("since", since);
 
   const response = await fetch(apiUrl, {
@@ -53,7 +66,7 @@ async function main() {
     throw new Error(`List failed: ${response.status} ${await response.text()}`);
   }
 
-  const body = await response.json();
+  const body = (await response.json()) as ListResponse;
   const defaultFormat = command === "copy" || command === "last" ? "url" : "table";
   const format = argValue("--format", defaultFormat);
   const output = formatItems(body.items ?? [], format);
@@ -66,7 +79,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message);
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

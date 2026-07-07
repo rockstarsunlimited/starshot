@@ -7,7 +7,17 @@ const stateDir =
 const queueDir = join(stateDir, "queue");
 const command = process.env.STARSHOT_SYNC_COMMAND || "sync";
 
-async function upload(item) {
+interface QueueItem {
+  file: string;
+  content_type: string;
+  scope?: string;
+}
+
+interface UploadResult {
+  url: string;
+}
+
+async function upload(item: QueueItem): Promise<UploadResult> {
   const token = process.env.STARSHOT_AUTH_TOKEN || process.env.AUTH_TOKEN;
   if (!process.env.STARSHOT_UPLOAD_URL) throw new Error("STARSHOT_UPLOAD_URL is required");
   if (!token) throw new Error("AUTH_TOKEN or STARSHOT_AUTH_TOKEN is required");
@@ -27,10 +37,10 @@ async function upload(item) {
     throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
   }
 
-  return response.json();
+  return (await response.json()) as UploadResult;
 }
 
-async function main() {
+async function main(): Promise<void> {
   if (!existsSync(queueDir)) {
     console.log(command === "status" ? "Queued uploads: 0" : "No queued uploads.");
     return;
@@ -54,7 +64,7 @@ async function main() {
   let uploaded = 0;
   for (const file of files) {
     try {
-      const item = JSON.parse(readFileSync(file, "utf8"));
+      const item = JSON.parse(readFileSync(file, "utf8")) as QueueItem;
       const result = await upload(item);
       rmSync(file);
       if (item.file?.includes("/Starshot/blobs/")) {
@@ -62,8 +72,8 @@ async function main() {
       }
       uploaded += 1;
       console.log(result.url);
-    } catch (error) {
-      console.error(`${file}: ${error.message}`);
+    } catch (error: unknown) {
+      console.error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
