@@ -1,0 +1,17 @@
+name = "starshot"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-07-07"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+[vars]
+PUBLIC_BASE_URL = "http://localhost:8787"
+MAX_UPLOAD_BYTES = "26214400"
+
+[[r2_buckets]]
+binding = "SCREENSHOTS"
+bucket_name = "starshot-screenshots"
+
+[observability]
+enabled = true

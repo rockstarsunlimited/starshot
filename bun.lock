@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "dependencies": {
+        "@varlock/1password-plugin": "^2.0.0",
+        "varlock": "^1.10.0",
+      },
+    },
+  },
+  "packages": {
+    "@varlock/1password-plugin": ["@varlock/1password-plugin@2.0.0", "", { "peerDependencies": { "varlock": "^1.8.0" } }, "sha512-wkNrwPCQQePeUbIJp2NzOOgnmGFPPAa75gfoBQllYNAzp4lvTUA+7+b00NqPkGWDTttnA/brstJontjhmF0B7g=="],
+
+    "varlock": ["varlock@1.10.0", "", { "bin": { "varlock": "bin/cli.js" } }, "sha512-o4YahQPmNFGjnYDkBYNWffMQBoQqrlzkBS473k4rFsbYfHH3J627/+62gfPYMTqhsg9HF4qC8ogtOR1vJSZUPA=="],
+  }
+}

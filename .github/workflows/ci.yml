@@ -1,0 +1,80 @@
+name: CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
+      || github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id)
+      || format('push-{0}', github.sha)
+    }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  rust-worker:
+    name: rust-worker
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: useblacksmith/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Rust checks
+        run: |
+          cargo fmt --check
+          cargo test
+          cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings
+          cargo check --target wasm32-unknown-unknown
+
+      - name: Worker build
+        run: |
+          cargo install -q worker-build
+          worker-build --release
+
+  bun-tools:
+    name: bun-tools
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: JavaScript and shell checks
+        run: |
+          bun build bin/starshot scripts/setup-starshot.js scripts/agent-screenshot.js scripts/list-urls.js scripts/sync-queue.js --target bun --outdir /tmp/starshot-check
+          rm -rf /tmp/starshot-check
+          zsh -n scripts/starshot-lib.sh
+          zsh -n scripts/upload-latest-screenshot.sh
+          zsh -n scripts/install-launch-agent.sh
+          zsh -n scripts/uninstall-launch-agent.sh
+
+      - name: Varlock scan
+        run: bun run scan

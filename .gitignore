@@ -1,0 +1,10 @@
+/target/
+/build/
+/.wrangler/
+/.dev.vars
+/.varlock/profiles/
+!.env.schema
+node_modules/
+npm-debug.log*
+
+*.tgz

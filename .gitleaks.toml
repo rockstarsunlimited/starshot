@@ -1,0 +1,12 @@
+title = "Starshot gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public documentation placeholders"
+regexes = [
+  '''replace-with-a-long-random-token''',
+  '''profile-token-for-validation''',
+  '''op://VAULT/ITEM/FIELD''',
+]

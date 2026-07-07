@@ -1,0 +1,43 @@
+{
+  "name": "starshot",
+  "version": "0.1.0",
+  "description": "Rust Cloudflare Worker and macOS uploader for screenshot links.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/rockstarsunlimited/starshot.git"
+  },
+  "bin": {
+    "starshot": "bin/starshot"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "launchd/",
+    "src/",
+    ".env.schema",
+    "Cargo.toml",
+    "Cargo.lock",
+    "wrangler.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "config:check": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock load -p .env.schema -p .varlock/profiles/starshot.env; else varlock load -p .env.schema; fi'",
+    "dev": "varlock run -- bunx wrangler dev",
+    "deploy": "varlock run -- bunx wrangler deploy",
+    "agent:install": "scripts/install-launch-agent.sh",
+    "scan": "varlock scan",
+    "setup": "scripts/setup-starshot.js",
+    "agent:uninstall": "scripts/uninstall-launch-agent.sh",
+    "starshot": "bin/starshot",
+    "agent": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot agent \"$@\"; else varlock run -p .env.schema -- bin/starshot agent \"$@\"; fi' --",
+    "list": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot list \"$@\"; else varlock run -p .env.schema -- bin/starshot list \"$@\"; fi' --",
+    "sync": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- bin/starshot sync \"$@\"; else varlock run -p .env.schema -- bin/starshot sync \"$@\"; fi' --",
+    "upload": "sh -c 'if [ -f .varlock/profiles/starshot.env ]; then varlock run -p .env.schema -p .varlock/profiles/starshot.env -- scripts/upload-latest-screenshot.sh; else varlock run -p .env.schema -- scripts/upload-latest-screenshot.sh; fi'"
+  },
+  "dependencies": {
+    "@varlock/1password-plugin": "^2.0.0",
+    "varlock": "^1.10.0"
+  }
+}
