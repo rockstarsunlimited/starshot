@@ -49,13 +49,12 @@ async fn handle_list(req: &Request, env: Env) -> Result<Response> {
     }
 
     let url = req.url()?;
-    let scope = match url
+    let scope_param = url
         .query_pairs()
         .find(|(key, _)| key == "scope")
-        .map(|(_, value)| value.to_string())
-        .unwrap_or_else(|| "humans".to_string())
-        .as_str()
-    {
+        .map(|(_, value)| value.into_owned())
+        .unwrap_or_else(|| "humans".to_string());
+    let scope = match scope_param.as_str() {
         "agents" => "agents",
         "humans" => "humans",
         _ => return text_response("invalid scope", 400),
@@ -72,15 +71,9 @@ async fn handle_list(req: &Request, env: Env) -> Result<Response> {
         .map(|(_, value)| value.to_string());
     let public_base_url = public_base_url(&env);
     let bucket = env.bucket("SCREENSHOTS")?;
-    let objects = bucket
-        .list()
-        .prefix(format!("{scope}/"))
-        .limit(1000)
-        .execute()
-        .await?;
+    let objects = list_objects_with_prefix(&bucket, &format!("{scope}/")).await?;
 
     let mut items = objects
-        .objects()
         .into_iter()
         .filter_map(|object| {
             let key = object.key();
@@ -136,7 +129,9 @@ async fn handle_upload(req: &mut Request, env: Env) -> Result<Response> {
     };
 
     let bytes = req.bytes().await?;
-    if bytes.len() as u64 > max_upload_bytes {
+    let bytes_len = u64::try_from(bytes.len())
+        .map_err(|_| Error::RustError("upload length overflow".to_string()))?;
+    if bytes_len > max_upload_bytes {
         return text_response("upload too large", 413);
     }
 
@@ -182,13 +177,12 @@ async fn handle_get(key: &str, env: Env) -> Result<Response> {
         return not_found();
     };
 
-    let mut response = Response::from_body(body.response_body()?)?;
-    let headers = response.headers_mut();
+    let headers = Headers::new();
     object.write_http_metadata(headers.clone())?;
     headers.set("Cache-Control", CACHE_CONTROL)?;
     headers.set("ETag", &object.http_etag())?;
     headers.set("Content-Length", &object.size().to_string())?;
-    Ok(response)
+    Ok(Response::from_body(body.response_body()?)?.with_headers(headers))
 }
 
 fn authorized(req: &Request, expected_token: &str) -> Result<bool> {
@@ -200,11 +194,30 @@ fn authorized(req: &Request, expected_token: &str) -> Result<bool> {
         return Ok(false);
     };
 
-    if token.len() != expected_token.len() {
-        return Ok(false);
-    }
+    let len_eq = token.len() == expected_token.len();
+    let bytes_eq: bool = token.as_bytes().ct_eq(expected_token.as_bytes()).into();
+    Ok(len_eq & bytes_eq)
+}
 
-    Ok(token.as_bytes().ct_eq(expected_token.as_bytes()).into())
+async fn list_objects_with_prefix(bucket: &Bucket, prefix: &str) -> Result<Vec<Object>> {
+    let mut cursor = None;
+    let mut objects = Vec::new();
+
+    loop {
+        let mut list = bucket.list().prefix(prefix).limit(1000);
+        if let Some(cursor) = cursor {
+            list = list.cursor(cursor);
+        }
+
+        let page = list.execute().await?;
+        let truncated = page.truncated();
+        cursor = page.cursor();
+        objects.extend(page.objects());
+
+        if !truncated {
+            return Ok(objects);
+        }
+    }
 }
 
 fn content_length(req: &Request) -> Result<Option<u64>> {
@@ -300,12 +313,8 @@ fn valid_public_key(key: &str) -> bool {
 fn timestamp_from_key(key: &str) -> Option<String> {
     let filename = key.rsplit('/').next()?;
     let timestamp = filename.split('_').next()?;
-    if timestamp.len() < 23 {
-        return None;
-    }
-
-    let date = &timestamp[..10];
-    let time = &timestamp[11..23];
+    let date = timestamp.get(..10)?;
+    let time = timestamp.get(11..23)?;
     let formatted_time = time.replacen('-', ":", 2).replacen('-', ".", 1);
     Some(format!("{date} {formatted_time}"))
 }
@@ -352,6 +361,15 @@ mod tests {
         assert_eq!(
             timestamp_from_key("agents/2026/07/07/2026-07-07T12-34-56-789_abcdef123456.jpg"),
             Some("2026-07-07 12:34:56.789".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_malformed_timestamp_keys() {
+        assert_eq!(timestamp_from_key("agents/2026/07/07/short.jpg"), None);
+        assert_eq!(
+            timestamp_from_key("agents/2026/07/07/\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}_bad.jpg"),
+            None
         );
     }
 }
