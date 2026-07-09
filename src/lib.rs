@@ -179,6 +179,11 @@ async fn handle_get(key: &str, env: Env) -> Result<Response> {
 
     let headers = Headers::new();
     object.write_http_metadata(headers.clone())?;
+    if headers.get("Content-Type")?.is_none() {
+        if let Some(content_type) = content_type_for_key(key) {
+            headers.set("Content-Type", content_type)?;
+        }
+    }
     headers.set("Cache-Control", CACHE_CONTROL)?;
     headers.set("ETag", &object.http_etag())?;
     headers.set("Content-Length", &object.size().to_string())?;
@@ -255,6 +260,16 @@ fn extension_for_content_type(content_type: &str) -> Option<&'static str> {
         "image/jpeg" => Some("jpg"),
         "image/heic" => Some("heic"),
         "image/heif" => Some("heif"),
+        _ => None,
+    }
+}
+
+fn content_type_for_key(key: &str) -> Option<&'static str> {
+    match key.rsplit('.').next()? {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "heic" => Some("image/heic"),
+        "heif" => Some("image/heif"),
         _ => None,
     }
 }

@@ -10,31 +10,25 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const profilePath = resolve(root, ".varlock/profiles/starshot.env");
 const wranglerPath = resolve(root, "wrangler.toml");
-const dryRun = process.env.STARSHOT_SETUP_DRY_RUN === "1";
+const localWranglerPath = resolve(root, "wrangler.local.toml");
+const dryRun = process.env["STARSHOT_SETUP_DRY_RUN"] === "1";
+const rl = createInterface(input as NodeJS.ReadableStream, output as NodeJS.WritableStream);
 
 interface RunOptions {
   input?: string;
 }
 
-interface WranglerPatch {
+interface LocalWranglerConfig {
   bucketName: string;
   publicBaseUrl: string;
+  customDomain: string;
 }
 
 interface ProfileConfig {
   publicBaseUrl: string;
   uploadUrl: string;
-  screenshotDir: string;
-  uploadFormat: string;
-  jpegQuality: string;
-  cleanupDays: string;
   agentMaxWidth: string;
   agentQuality: string;
-}
-
-interface MacScreenshotDefaults {
-  screenshotDir: string;
-  includeShadows: boolean;
 }
 
 function argValue(name: string): string | undefined {
@@ -42,22 +36,32 @@ function argValue(name: string): string | undefined {
   const direct = process.argv.find((arg) => arg.startsWith(prefix));
   if (direct) return direct.slice(prefix.length);
   const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  const next = index >= 0 ? process.argv[index + 1] : undefined;
+  return next && !next.startsWith("--") ? next : undefined;
 }
 
 function hasArg(name: string): boolean {
   return process.argv.includes(name);
 }
 
-async function prompt(question: string, fallback: string): Promise<string> {
-  const rl = createInterface({ input, output });
-  try {
-    const suffix = fallback ? ` (${fallback})` : "";
-    const answer = await rl.question(`${question}${suffix}: `);
-    return answer.trim() || fallback;
-  } finally {
-    rl.close();
+async function promptChoice<T extends string>(
+  question: string,
+  fallback: T,
+  choices: readonly T[],
+): Promise<T> {
+  const answer = (await prompt(question, fallback)).toLowerCase();
+  if (choices.includes(answer as T)) {
+    return answer as T;
   }
+
+  console.error(`Choose one of: ${choices.join(", ")}.`);
+  process.exit(1);
+}
+
+async function prompt(question: string, fallback: string): Promise<string> {
+  const suffix = fallback ? ` (${fallback})` : "";
+  const answer = await rl.question(`${question}${suffix}: `);
+  return answer.trim() || fallback;
 }
 
 async function promptBool(question: string, fallback: boolean): Promise<boolean> {
@@ -69,6 +73,17 @@ async function promptBool(question: string, fallback: boolean): Promise<boolean>
 
 function envQuote(value: string): string {
   return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function validateInteger(name: string, value: string, min: number, max?: number): string {
+  const numberValue = Number(value);
+  if (!Number.isInteger(numberValue) || numberValue < min || (max !== undefined && numberValue > max)) {
+    const range = max === undefined ? `>= ${min}` : `between ${min} and ${max}`;
+    console.error(`${name} must be an integer ${range}.`);
+    process.exit(1);
+  }
+
+  return value;
 }
 
 function run(command: string, args: string[], options: RunOptions = {}): { status: number | null } {
@@ -85,27 +100,53 @@ function run(command: string, args: string[], options: RunOptions = {}): { statu
   });
 }
 
-function patchWrangler({ bucketName, publicBaseUrl }: WranglerPatch): void {
+function hostnameFromUrl(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    console.error(`Invalid Public base URL: ${value}`);
+    process.exit(1);
+  }
+}
+
+function wranglerValue(pattern: RegExp, fallback: string): string {
+  const sourcePath = existsSync(localWranglerPath) ? localWranglerPath : wranglerPath;
+  const match = readFileSync(sourcePath, "utf8").match(pattern);
+  return match?.[1] ?? fallback;
+}
+
+function writeLocalWranglerConfig({ bucketName, publicBaseUrl, customDomain }: LocalWranglerConfig): void {
   const original = readFileSync(wranglerPath, "utf8");
-  const next = original
-    .replace(/^PUBLIC_BASE_URL = ".*"$/m, `PUBLIC_BASE_URL = "${publicBaseUrl}"`)
-    .replace(/^bucket_name = ".*"$/m, `bucket_name = "${bucketName}"`);
+  let next = original
+    .replace(/^PUBLIC_BASE_URL = "([^"]*)"$/m, `PUBLIC_BASE_URL = "${publicBaseUrl}"`)
+    .replace(/^bucket_name = "([^"]*)"$/m, `bucket_name = "${bucketName}"`);
+
+  if (customDomain) {
+    const routeBlock = `[[routes]]\npattern = "${customDomain}"\ncustom_domain = true`;
+    const customDomainRoutePattern =
+      /^\[\[routes\]\]\r?\npattern = "([^"]*)"\r?\ncustom_domain = true$/m;
+    if (customDomainRoutePattern.test(next)) {
+      next = next.replace(
+        customDomainRoutePattern,
+        routeBlock,
+      );
+    } else if (!next.includes(routeBlock)) {
+      next = `${next.trimEnd()}\n\n${routeBlock}\n`;
+    }
+  }
 
   if (dryRun) {
-    console.log(`[dry-run] update ${wranglerPath}`);
+    console.log(`[dry-run] write ${localWranglerPath}`);
     return;
   }
 
-  writeFileSync(wranglerPath, next);
+  mkdirSync(dirname(localWranglerPath), { recursive: true });
+  writeFileSync(localWranglerPath, next);
 }
 
 function writeProfile({
   publicBaseUrl,
   uploadUrl,
-  screenshotDir,
-  uploadFormat,
-  jpegQuality,
-  cleanupDays,
   agentMaxWidth,
   agentQuality,
 }: ProfileConfig): void {
@@ -113,10 +154,6 @@ function writeProfile({
   const lines = [
     `PUBLIC_BASE_URL=${envQuote(publicBaseUrl)}`,
     `STARSHOT_UPLOAD_URL=${envQuote(uploadUrl)}`,
-    `SCREENSHOT_DIR=${envQuote(screenshotDir)}`,
-    `STARSHOT_UPLOAD_FORMAT=${envQuote(uploadFormat)}`,
-    `STARSHOT_JPEG_QUALITY=${envQuote(jpegQuality)}`,
-    `STARSHOT_CLEANUP_DAYS=${envQuote(cleanupDays)}`,
     `STARSHOT_AGENT_MAX_WIDTH=${envQuote(agentMaxWidth)}`,
     `STARSHOT_AGENT_QUALITY=${envQuote(agentQuality)}`,
   ];
@@ -165,24 +202,47 @@ function putWranglerSecret(token: string): void {
   }
 }
 
-function applyMacScreenshotDefaults({ screenshotDir, includeShadows }: MacScreenshotDefaults): void {
-  if (dryRun) {
-    console.log(`[dry-run] mkdir -p ${screenshotDir}`);
+function createR2Bucket(bucketName: string): void {
+  const bucketResult = run("bunx", ["wrangler", "r2", "bucket", "create", bucketName]);
+  if (bucketResult.status !== 0) {
+    console.error(`Failed to create R2 bucket "${bucketName}".`);
+    console.error("If it already exists, rerun setup and choose bucket mode \"existing\".");
+    process.exit(bucketResult.status ?? 1);
+  }
+}
+
+function printNextSteps(
+  secretMode: string,
+  endpointMode: string,
+  customDomain: string,
+  publicBaseUrl: string,
+  installedFinderService: boolean,
+): void {
+  console.log("");
+  console.log("Next steps:");
+  console.log("1. Check local config: bun run config:check");
+  console.log("2. Deploy the Worker: bun run deploy");
+  if (secretMode === "skip") {
+    console.log(
+      "3. Upload the Keychain-stored AUTH_TOKEN after deploy: bunx varlock printenv -p .env.schema -p .varlock/profiles/starshot.env AUTH_TOKEN | bunx wrangler secret put AUTH_TOKEN",
+    );
   } else {
-    mkdirSync(screenshotDir, { recursive: true });
+    console.log("3. AUTH_TOKEN was uploaded to Cloudflare during setup.");
   }
-
-  const disableShadow = includeShadows ? "false" : "true";
-  const commands: Array<[string, string[]]> = [
-    ["defaults", ["write", "com.apple.screencapture", "location", screenshotDir]],
-    ["defaults", ["write", "com.apple.screencapture", "type", "png"]],
-    ["defaults", ["write", "com.apple.screencapture", "disable-shadow", "-bool", disableShadow]],
-    ["killall", ["SystemUIServer"]],
-  ];
-
-  for (const [command, args] of commands) {
-    run(command, args);
+  if (endpointMode === "workers-dev") {
+    console.log(`4. Confirm the Worker URL is enabled in Cloudflare: ${publicBaseUrl}`);
+  } else if (customDomain) {
+    console.log(`4. Confirm the custom domain appears in Cloudflare: ${customDomain}`);
+  } else {
+    console.log(`4. Add a Worker custom domain or route for ${publicBaseUrl} in Cloudflare.`);
   }
+  console.log("5. Test an upload: bun run starshot upload-file ./screenshot.png");
+  if (process.platform === "darwin") {
+    console.log(installedFinderService
+      ? "6. Finder Quick Action installed: right-click an image and choose Starshot Upload."
+      : "6. Optional: install Finder Quick Action with scripts/install-macos-finder-service.sh");
+  }
+  console.log(`Local Worker config: ${localWranglerPath}`);
 }
 
 async function main(): Promise<void> {
@@ -191,64 +251,113 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const bucketName =
-    argValue("--bucket") ?? (await prompt("R2 bucket name", "starshot-screenshots"));
+  const bucketMode = hasArg("--skip-bucket")
+    ? "skip"
+    : argValue("--bucket-mode") ??
+      (await promptChoice(
+        "R2 bucket mode: create, existing, or skip",
+        "existing",
+        ["create", "existing", "skip"] as const,
+      ));
+  const existingBucketName = wranglerValue(/^bucket_name = "([^"]*)"$/m, "starshot-screenshots");
+  const bucketName = argValue("--bucket") ??
+    (bucketMode === "skip" ? existingBucketName : await prompt("R2 bucket name", existingBucketName));
+  const secretMode = hasArg("--skip-wrangler-secret")
+    ? "skip"
+    : argValue("--secret-mode") ??
+      (await promptChoice(
+        "Worker secret setup: now or skip",
+        "skip",
+        ["now", "skip"] as const,
+      ));
+  const endpointMode = hasArg("--no-custom-domain")
+    ? "workers-dev"
+    : hasArg("--custom-domain") || argValue("--custom-domain")
+      ? "custom-domain"
+      : argValue("--endpoint-mode") ??
+        (await promptChoice(
+          "Public endpoint: custom-domain or workers-dev",
+          "custom-domain",
+          ["custom-domain", "workers-dev"] as const,
+        ));
+  const existingPublicBaseUrl = wranglerValue(
+    /^PUBLIC_BASE_URL = "([^"]*)"$/m,
+    endpointMode === "workers-dev"
+      ? "https://your-worker.your-subdomain.workers.dev"
+      : "https://your-domain.example",
+  );
   const publicBaseUrl =
     argValue("--public-base-url") ??
-    (await prompt("Public base URL", "https://your-domain.example"));
+    (await prompt(
+      endpointMode === "workers-dev" ? "workers.dev URL" : "Custom domain URL",
+      existingPublicBaseUrl,
+    ));
+  const inferredCustomDomain = hostnameFromUrl(publicBaseUrl);
+  const explicitCustomDomain = argValue("--custom-domain");
+  const shouldPromptForCustomDomainRoute =
+    endpointMode === "custom-domain" &&
+    !explicitCustomDomain &&
+    !hasArg("--custom-domain") &&
+    !argValue("--endpoint-mode") &&
+    !argValue("--public-base-url");
+  const customDomain = endpointMode === "workers-dev" || hasArg("--no-custom-domain")
+    ? ""
+    : explicitCustomDomain ??
+      (shouldPromptForCustomDomainRoute &&
+      !(await promptBool(
+        `Add ${inferredCustomDomain} as a Worker custom domain route in local Wrangler config`,
+        true,
+      ))
+        ? ""
+        : inferredCustomDomain);
   const uploadUrl =
     argValue("--upload-url") ?? `${publicBaseUrl.replace(/\/$/, "")}/upload`;
-  const screenshotDir =
-    argValue("--screenshot-dir") ??
-    (await prompt("Local screenshot folder", `${process.env.HOME}/Pictures/Starshot Screenshots`));
-  const uploadFormat = (
-    argValue("--upload-format") ?? (await prompt("Upload format: jpeg, png, or original", "jpeg"))
-  ).toLowerCase();
-  if (!["jpeg", "jpg", "png", "original"].includes(uploadFormat)) {
-    console.error("Upload format must be jpeg, png, or original.");
-    process.exit(1);
-  }
-  const jpegQuality = argValue("--jpeg-quality") ?? (await prompt("JPEG upload quality", "75"));
-  const cleanupDays = argValue("--cleanup-days") ?? (await prompt("Cleanup local screenshots older than days", "7"));
-  const agentMaxWidth = argValue("--agent-max-width") ?? (await prompt("Agent preview max width", "1280"));
-  const agentQuality = argValue("--agent-quality") ?? (await prompt("Agent preview JPEG quality", "60"));
-  const includeShadows = hasArg("--no-shadows")
-    ? false
-    : hasArg("--shadows")
-      ? true
-      : await promptBool("Include macOS window shadows in screenshots", true);
+  const agentMaxWidth = validateInteger(
+    "Agent preview max width",
+    argValue("--agent-max-width") ?? (await prompt("Agent preview max width", "1280")),
+    1,
+  );
+  const agentQuality = validateInteger(
+    "Agent preview JPEG quality",
+    argValue("--agent-quality") ?? (await prompt("Agent preview JPEG quality", "60")),
+    1,
+    100,
+  );
+  const installFinderService = process.platform === "darwin" &&
+    !hasArg("--skip-finder-service") &&
+    (hasArg("--install-finder-service") ||
+      await promptBool("Install macOS Finder Quick Action for right-click uploads", true));
   const token = randomBytes(32).toString("base64url");
 
-  patchWrangler({ bucketName, publicBaseUrl });
+  writeLocalWranglerConfig({ bucketName, publicBaseUrl, customDomain });
   writeProfile({
     publicBaseUrl,
     uploadUrl,
-    screenshotDir,
-    uploadFormat: uploadFormat === "jpg" ? "jpeg" : uploadFormat,
-    jpegQuality,
-    cleanupDays,
     agentMaxWidth,
     agentQuality,
   });
   storeTokenInKeychain(token);
+  console.log("Stored AUTH_TOKEN locally in macOS Keychain.");
 
-  if (!hasArg("--skip-macos-defaults")) {
-    applyMacScreenshotDefaults({ screenshotDir, includeShadows });
+  if (bucketMode === "create") {
+    createR2Bucket(bucketName);
+  } else if (bucketMode === "existing") {
+    console.log(`Using existing R2 bucket "${bucketName}".`);
+  } else {
+    console.log("Skipping R2 bucket creation.");
   }
 
-  if (!hasArg("--skip-bucket")) {
-    const bucketResult = run("bunx", ["wrangler", "r2", "bucket", "create", bucketName]);
-    if (bucketResult.status !== 0) {
-      console.warn("R2 bucket creation failed or bucket already exists; continuing.");
-    }
-  }
-
-  if (!hasArg("--skip-wrangler-secret")) {
+  if (secretMode === "now") {
     putWranglerSecret(token);
+  } else {
+    console.log("Skipping Worker secret upload.");
+    console.log(
+      "After the Worker exists, upload the same Keychain token with: bunx varlock printenv -p .env.schema -p .varlock/profiles/starshot.env AUTH_TOKEN | bunx wrangler secret put AUTH_TOKEN",
+    );
   }
 
-  if (hasArg("--install")) {
-    const installResult = run("sh", [resolve(root, "scripts/install-launch-agent.sh")]);
+  if (installFinderService) {
+    const installResult = run("sh", [resolve(root, "scripts/install-macos-finder-service.sh")]);
     if (installResult.status !== 0) {
       process.exit(installResult.status ?? 1);
     }
@@ -256,6 +365,11 @@ async function main(): Promise<void> {
 
   console.log("Starshot setup complete.");
   console.log(`Profile: ${profilePath}`);
+  printNextSteps(secretMode, endpointMode, customDomain, publicBaseUrl, installFinderService);
 }
 
-await main();
+try {
+  await main();
+} finally {
+  rl.close();
+}

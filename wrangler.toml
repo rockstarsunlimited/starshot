@@ -1,5 +1,5 @@
 name = "starshot"
-main = "build/worker/shim.mjs"
+main = "build/index.js"
 compatibility_date = "2026-07-07"
 
 [build]

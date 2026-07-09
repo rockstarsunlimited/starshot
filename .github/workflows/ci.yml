@@ -22,6 +22,7 @@ on:
 jobs:
   rust-worker:
     name: rust-worker
+    if: github.event_name != 'pull_request'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
@@ -72,10 +73,8 @@ jobs:
           bun run typecheck
           bun build bin/starshot.ts scripts/setup-starshot.ts scripts/agent-screenshot.ts scripts/list-urls.ts scripts/sync-queue.ts --target bun --outdir /tmp/starshot-check
           rm -rf /tmp/starshot-check
-          sh -n scripts/starshot-lib.sh
-          sh -n scripts/upload-latest-screenshot.sh
-          sh -n scripts/install-launch-agent.sh
-          sh -n scripts/uninstall-launch-agent.sh
+          sh -n scripts/install-macos-finder-service.sh
+          sh -n scripts/macos-finder-upload.sh
 
       - name: Varlock scan
         run: bun run scan

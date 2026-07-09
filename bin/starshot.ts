@@ -9,12 +9,8 @@ const args = process.argv.slice(3);
 
 const scripts: Record<string, string> = {
   setup: "scripts/setup-starshot.ts",
-  install: "scripts/install-launch-agent.sh",
-  uninstall: "scripts/uninstall-launch-agent.sh",
-  upload: "scripts/upload-latest-screenshot.sh",
   agent: "scripts/agent-screenshot.ts",
   "agent-file": "scripts/agent-screenshot.ts",
-  "upload-file": "scripts/agent-screenshot.ts",
   last: "scripts/list-urls.ts",
   list: "scripts/list-urls.ts",
   copy: "scripts/list-urls.ts",
@@ -22,7 +18,7 @@ const scripts: Record<string, string> = {
   status: "scripts/sync-queue.ts",
 };
 
-const varlockCommands = new Set<string>([
+const varlockCommands = [
   "agent",
   "agent-file",
   "upload-file",
@@ -31,19 +27,16 @@ const varlockCommands = new Set<string>([
   "copy",
   "sync",
   "status",
-]);
+] as const;
 
 function help(): void {
   console.log(`Starshot
 
 Usage:
   starshot setup
-  starshot install
-  starshot uninstall
-  starshot upload
   starshot agent [--format path|url|env|json] [--upload]
   starshot agent-file <image> [--format path|url|env|json]
-  starshot upload-file <image> [--format url|json]
+  starshot upload-file <image> [--scope humans|agents]
   starshot last [--scope humans|agents]
   starshot list [--since 1h|1d] [--scope humans|agents]
   starshot copy [--since 1h|1d] [--scope humans|agents]
@@ -58,6 +51,15 @@ if (command === "help" || command === "--help" || command === "-h") {
   process.exit(0);
 }
 
+if (command === "upload-file") {
+  const result = spawnSync("cargo", ["run", "--quiet", "--", "upload-file", ...args], {
+    cwd: root,
+    env: process.env,
+    stdio: "inherit",
+  });
+  process.exit(result.status ?? 1);
+}
+
 const script = scripts[command];
 if (!script) {
   console.error(`Unknown command: ${command}`);
@@ -68,11 +70,9 @@ if (!script) {
 const commandArgs =
   command === "agent-file"
     ? ["--mode", "file", ...args]
-    : command === "upload-file"
-      ? ["--mode", "file", "--upload", "--format", "url", ...args]
-      : args;
+    : args;
 
-if (varlockCommands.has(command) && process.env.STARSHOT_VARLOCK_WRAPPED !== "1") {
+if (varlockCommands.some((varlockCommand) => varlockCommand === command) && process.env["STARSHOT_VARLOCK_WRAPPED"] !== "1") {
   const profilePath = resolve(root, ".varlock/profiles/starshot.env");
   const varlockArgs = ["varlock", "run", "-p", ".env.schema"];
   try {
