@@ -1,6 +1,7 @@
 /target/
 /build/
 /.wrangler/
+/wrangler.local.toml
 /.dev.vars
 /.varlock/profiles/
 !.env.schema
